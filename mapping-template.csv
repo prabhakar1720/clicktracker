@@ -1,0 +1,2 @@
+name,advertiser_id,app_id,pids,offer_ids,mode,timezone,agency_prts
+Example Android UA,REPLACE_ADVERTISER_ID,com.example.app,adsphiremx8_int;adsphiredsp_int,,ua,Asia/Kolkata,your_agency_prt

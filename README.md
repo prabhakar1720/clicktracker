@@ -125,3 +125,13 @@ Official references:
 - https://support.appsflyer.com/hc/en-us/articles/207034346-Pull-API-aggregate-data
 - https://dev.appsflyer.com/hc/reference/get_app-id-partners-by-date-report-v5-1
 - https://help-center.affise.com/en/articles/6796615-api-for-statistics-admins
+
+## Bulk CSV mapping upload
+
+App mappings → Bulk upload mappings → Download CSV template. Fill one mapping per row, select the CSV, click Preview CSV, then Import mappings. Import appends new mappings and leaves existing settings, saved tokens and history intact. Any invalid row blocks the entire import; correct it and preview again.
+
+Columns: `name,advertiser_id,app_id,pids,offer_ids,mode,timezone,agency_prts`.
+Use semicolons between list values (`pid_a;pid_b` or `agency_a;agency_b`). Standard quoted comma-separated fields are also supported. `offer_ids` is optional; blank `mode` defaults to `ua`, blank `timezone` to `UTC`. Agency PRTs must already exist in Connections. Maximum 100 mappings total and 1 MB per upload. Overlapping app/PID/mode/timezone scopes or Affise offer scopes are rejected. This imports mapping configuration; no report fetch is triggered.
+
+### Updating an existing Render service
+Replace the repository code with this ZIP's contents, commit and push, then deploy the latest commit. Keep existing environment variables, encryption secret and persistent disk unchanged. No data migration is needed. The new bulk upload panel appears under App mappings.

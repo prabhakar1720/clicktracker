@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server.js",
     "check": "node --check server.js && node --check src/app.js && node scripts/check-client.mjs",
-    "test": "node scripts/check-behavior.mjs && node scripts/check-af-partial.mjs && node scripts/check-af-cache.mjs && node scripts/check-af-http.mjs && node --test scripts/server.test.mjs",
+    "test": "node scripts/check-mapping-csv.mjs && node scripts/check-behavior.mjs && node scripts/check-af-partial.mjs && node scripts/check-af-cache.mjs && node scripts/check-af-http.mjs && node --test scripts/server.test.mjs",
     "generate-secrets": "node scripts/generate-secrets.mjs"
   }
 }

@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 const HTML=readFileSync(new URL('./dashboard.html',import.meta.url),'utf8');
 
-export function parseCSV(text){
+export function parseCSV(text,strict=false){
  const rows=[];let row=[],cell='',q=false;
  for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(q&&text[i+1]==='"'){cell+='"';i++}else q=!q}else if(c===','&&!q){row.push(cell);cell=''}else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(x=>x!==''))rows.push(row);row=[];cell=''}else cell+=c}
- if(q)throw Error('Unclosed CSV quote');row.push(cell);if(row.some(x=>x!==''))rows.push(row);if(!rows.length)throw Error('Empty CSV');const head=rows.shift().map(x=>x.replace(/^\uFEFF/,'').trim().toLowerCase().replace(/[^a-z0-9]/g,''));const result=rows.map(r=>Object.fromEntries(head.map((h,i)=>[h,r[i]?.trim()??''])));Object.defineProperty(result,'headers',{value:head});return result;
+ if(q)throw Error('Unclosed CSV quote');row.push(cell);if(row.some(x=>x!==''))rows.push(row);if(!rows.length)throw Error('Empty CSV');const head=rows.shift().map(x=>x.replace(/^\uFEFF/,'').trim().toLowerCase().replace(/[^a-z0-9]/g,''));if(strict&&rows.some(r=>r.length!==head.length))throw Error('CSV column count mismatch. Use semicolons inside list fields, or quote fields containing commas');const result=rows.map(r=>Object.fromEntries(head.map((h,i)=>[h,r[i]?.trim()??''])));Object.defineProperty(result,'headers',{value:head});return result;
 }
 const json=(v,s=200)=>new Response(JSON.stringify(v),{status:s,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
 const dateOK=d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&!isNaN(Date.parse(d))&&new Date(d).toISOString().slice(0,10)===d;
@@ -16,6 +16,29 @@ export function normalizeSettings(c){return {...c,agencies:Array.isArray(c.agenc
 export function selectedAgencies(m,c){const ids=m.agencyIds??c.agencies.slice(0,1).map(a=>a.id);return ids.map(id=>{const a=c.agencies.find(a=>a.id===id);if(!a)throw Error('Mapping references a removed agency');return a})}
 export function scopeFingerprint(m,c){return m.agencyIds?JSON.stringify({map:m,agencies:selectedAgencies(m,c).map(a=>({id:a.id,prt:a.prt}))}):JSON.stringify(m)}
 function validateSettings(b){const c=normalizeSettings(b);if(c.agencies.length>10)throw Error('Maximum 10 agencies');const ids=new Set(),prts=new Set();for(const a of c.agencies){if(!a.id||!/^[a-zA-Z0-9_.-]+$/.test(a.prt))throw Error('Enter a valid agency PRT for every connection');if(ids.has(a.id)||prts.has(a.prt.toLowerCase()))throw Error('Each agency PRT must be unique');ids.add(a.id);prts.add(a.prt.toLowerCase())}validateMaps(c.maps);for(const m of c.maps){if(m.agencyIds&&(!m.agencyIds.length||new Set(m.agencyIds).size!==m.agencyIds.length))throw Error('Select at least one unique agency per mapping');selectedAgencies(m,c)}return {base:String(c.base||''),agencies:c.agencies.map(a=>({id:String(a.id),prt:String(a.prt)})),maps:c.maps}}
+// Bulk import adds mappings only; existing mappings and credentials are preserved.
+export function previewMappingCSV(text,settings){
+ if(typeof text!=='string'||text.length>1_000_000)throw Error('Choose a CSV file under 1 MB');
+ const rows=parseCSV(text,true),headers=rows.headers,required=['name','advertiserid','appid','pids','agencyprts'];
+ if(new Set(headers).size!==headers.length)throw Error('CSV has duplicate column headers');
+ for(const key of required)if(!headers.includes(key))throw Error('Missing CSV column: '+key);
+ if(!rows.length||rows.length>100)throw Error('CSV must contain 1–100 mappings');
+ const cfg=normalizeSettings(settings),maps=[...cfg.maps],preview=[];
+ const split=v=>[...new Set(String(v||'').split(/[,;|]/).map(x=>x.trim()).filter(Boolean))];
+ for(const [i,r] of rows.entries()){
+ const item={row:i+2,name:r.name,app:r.appid,error:null};
+ try{
+ const prts=split(r.agencyprts);if(!prts.length)throw Error('Agency PRTs are required');
+ const agencyIds=prts.map(prt=>{const agency=cfg.agencies.find(a=>a.prt.toLowerCase()===prt.toLowerCase());if(!agency)throw Error('Unknown agency PRT: '+prt+'. Save it in Connections first');return agency.id});
+ const mode=(r.mode||'ua').toLowerCase();
+ const m={id:crypto.randomUUID(),name:r.name,advertiser:r.advertiserid,app:r.appid,pids:split(r.pids),offers:split(r.offerids),mode,timezone:r.timezone||'UTC',agencyIds};
+ validateSettings({...cfg,maps:[...maps,m]});maps.push(m);item.mapping=m;
+ }catch(e){item.error=e.message}
+ preview.push(item);
+ }
+ return {rows:preview,valid:preview.every(r=>!r.error),count:rows.length,maps};
+}
+
 export function combineAgencies(parts){const error=parts.filter(a=>a.error||!Number.isFinite(a.value)).map(a=>a.prt+': '+(a.error||'Not fetched')).join('; ');const usable=parts.filter(a=>Number.isFinite(a.value)&&(!a.error||a.incomplete));return {value:error?null:parts.reduce((s,a)=>s+a.value,0),availableSubtotal:error&&usable.length?usable.reduce((s,a)=>s+a.value,0):null,incomplete:!!error&&usable.length>0,agencies:parts,error:error||null,at:new Date().toISOString(),via:[...new Set(parts.map(a=>a.via).filter(Boolean))].join('+')}}
 
 async function load(env,key,fallback){if(!env.BUCKET)throw Error('Persistent storage unavailable');const o=await env.BUCKET.get(key);return o?o.json():fallback}
@@ -97,6 +120,12 @@ export default {async fetch(req,env){const u=new URL(req.url);try{
  if(b.remove&&!Array.isArray(b.remove))throw Error('Invalid credential removal');for(const id of b.remove||[]){if(id==='affise')delete vault.affise;else delete vault.agencies[id]}
  const seen=new Map();for(const a of cfg.agencies){const entry=vault.agencies[a.id];if(entry?.prt===a.prt&&entry.token){if(seen.has(entry.token))throw Error('Use a different V2 token for each agency to avoid double counting');seen.set(entry.token,a.id)}}
  await writeVault(env,vault);return json({ok:true,credentialStatus:vaultStatus(vault,cfg)})}
+ if(u.pathname==='/api/mappings-csv'){
+ const cfg=normalizeSettings(await load(env,'settings',{base:'',agencies:[],maps:[]}));
+ const result=previewMappingCSV(b.csv,cfg);
+ if(b.commit===true){if(!result.valid)return json({...result,maps:undefined,error:'Fix every CSV row before importing. Nothing was saved'},400);await save(env,'settings',validateSettings({...cfg,maps:result.maps}))}
+ return json({rows:result.rows,valid:result.valid,count:result.count,imported:b.commit===true?result.count:0})
+ }
  if(u.pathname==='/api/settings'){const c=validateSettings(b);const old=normalizeSettings(await load(env,'settings',{maps:[]}));for(const a of old.agencies){const next=c.agencies.find(x=>x.id===a.id);if(next&&next.prt!==a.prt&&c.maps.some(m=>(m.agencyIds??old.agencies.slice(0,1).map(x=>x.id)).includes(a.id)))throw Error('Remove agency '+a.prt+' from its mappings before changing its PRT')}await save(env,'settings',c);return json({ok:true})}
  if(u.pathname==='/api/sync'||u.pathname==='/api/import'){
  const ds=days(b.from,b.to),cfg=normalizeSettings(await load(env,'settings',{maps:[]}));const maps=validateMaps(cfg.maps).filter(m=>!b.mapping||m.id===b.mapping);if(!maps.length)throw Error('Add a mapping first');if(maps.length>15)throw Error('Select one mapping, or fetch at most 15 mappings at once');const logs=[],cache=new Map();const vault=await readVault(env);if(!b.affiseToken&&vault.affise?.base===cfg.base)b.affiseToken=vault.affise.token;b.agencyTokens={...(b.agencyTokens||{})};for(const a of cfg.agencies){const entry=vault.agencies?.[a.id];if(!b.agencyTokens[a.id]&&entry?.prt===a.prt)b.agencyTokens[a.id]=entry.token}
