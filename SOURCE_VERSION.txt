@@ -1,0 +1,5 @@
+Adsphire Click Reconciliation — Render export
+Export date: 2026-10-29
+Based on hosted source commit: ef5066504dc7e45055c0acf552bbc571dc06f96d
+Standalone server, password login, disk storage and migration utilities added.
+No actual API tokens or saved account data are included.

@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: adsphire-click-reconciliation
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run check
+    startCommand: npm start
+    healthCheckPath: /healthz
+    disk:
+      name: adsphire-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "24"
+      - key: DATA_DIR
+        value: /var/data
+      - key: DASHBOARD_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: ENCRYPTION_SECRET
+        generateValue: true

@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+const code=await readFile('src/app.js','utf8');const {default:worker,aggregateAF}=await import('../src/app.js');
+const m={id:'one',name:'Test app',advertiser:'adv',app:'test.app',pids:['adsphiremx8_int','adsphirenas_int','adsphiredsp_int'],offers:[],agencyIds:['a'],mode:'ua',timezone:'UTC'};
+const csv='Date,Media Source (pid),Campaign,Clicks\n2026-10-28,adsphiremx8_int,A,"49,243"\n2026-10-28,adsphirenas_int,B,"28,368"\n2026-10-28,adsphiredsp_int,C,"15,994"\n2026-10-28,adsphiremx8_int,D,N/A\n2026-10-28,other_int,E,900000';
+const values=aggregateAF(csv,m,['2026-10-28']);assert.equal(values['2026-10-28'],93605);assert.equal(values.diagnostics.numericRows,3);assert.equal(values.diagnostics.unavailableRows,1);assert.equal(values.diagnostics.numericByPid.adsphiremx8_int,49243);
+const objects=new Map(),env={CREDENTIAL_OWNER_EMAIL:'owner@test.example',CREDENTIAL_ENCRYPTION_KEY:'11'.repeat(32),BUCKET:{get:async k=>objects.has(k)?{json:async()=>JSON.parse(objects.get(k))}:null,put:async(k,v)=>objects.set(k,v)}};
+const headers={origin:'https://test.site','oai-authenticated-user-id':'owner','oai-authenticated-user-email':'owner@test.example'};
+const post=async(path,data)=>{const r=await worker.fetch(new Request('https://test.site/api/'+path,{method:'POST',headers,body:JSON.stringify(data)}),env);assert.equal(r.status,200);return r.json()};
+await post('settings',{base:'https://api-test.affise.com',agencies:[{id:'a',prt:'test_agency'}],maps:[m]});
+const req={from:'2026-10-28',to:'2026-10-28',mapping:'one',agencyId:'a',confirmTimezone:true};await post('import',{...req,csv});let r=JSON.parse(objects.get('reports/2026-10-28'))[0];assert.equal(r.af.agencies[0].value,93605);assert.equal(r.af.value,null);assert.equal(r.af.availableSubtotal,93605);assert.equal(r.af.incomplete,true);assert.match(r.af.error,/numeric subtotal shown/);
+await post('import',{...req,csv:'Date,Media Source (pid),Clicks\n2026-10-28,adsphiremx8_int,N/A'});r=JSON.parse(objects.get('reports/2026-10-28'))[0];assert.equal(r.af.value,null);assert.equal(r.af.availableSubtotal,null);
+await post('import',{...req,csv:'Date,Media Source (pid),Clicks\n2026-10-28,adsphiremx8_int,0'});r=JSON.parse(objects.get('reports/2026-10-28'))[0];assert.equal(r.af.value,0);assert.equal(r.af.error,null);
+console.log('PASS: selected PID Clicks cells sum correctly with comma formatting; an N/A row does not discard numeric rows; unrelated PIDs excluded; partial subtotal labelled incomplete; all-N/A never becomes zero; explicit zero remains valid.');

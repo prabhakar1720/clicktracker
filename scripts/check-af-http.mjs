@@ -1,0 +1,9 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+const code=await readFile('src/app.js','utf8');const {remote}=await import('../src/app.js');const original=fetch;let requests=[];
+globalThis.fetch=async(url,opt)=>{requests.push({url,headers:{...opt.headers}});if(requests.length===1)return new Response(null,{status:302,headers:{location:'https://hq.appsflyer.com/report'}});if(requests.length===2)return new Response(null,{status:302,headers:{location:'https://reports.s3.amazonaws.com/report?signed=hidden'}});return new Response('Date,Clicks\n2026-10-28,100')};
+await remote('https://hq1.appsflyer.com/api/report',{Authorization:'Bearer private-token',Accept:'text/csv'});assert.equal(requests[1].headers.Authorization,'Bearer private-token');assert.equal(requests[2].headers.Authorization,undefined);
+globalThis.fetch=async()=>new Response(JSON.stringify({message:'No access. Token private-token. https://host.test/signed?key=abc'}),{status:403,headers:{'content-type':'application/json'}});
+try{await remote('https://hq1.appsflyer.com/api/report',{Authorization:'Bearer private-token'})}catch(e){assert.equal(e.diagnostics.httpStatus,403);assert.match(e.diagnostics.upstreamMessage,/No access/);assert(!JSON.stringify(e.diagnostics).includes('private-token'));assert(!JSON.stringify(e.diagnostics).includes('key=abc'))}
+globalThis.fetch=async()=>new Response(null,{status:302,headers:{location:'https://evil.test/report'}});await assert.rejects(()=>remote('https://hq1.appsflyer.com/api/report',{Authorization:'Bearer private-token'}),/Unsupported report redirect/);
+globalThis.fetch=original;console.log('PASS: AF-to-AF redirect authentication retained; storage redirect strips credentials; API denial details shown with secrets and signed URLs redacted; untrusted redirects rejected.');
